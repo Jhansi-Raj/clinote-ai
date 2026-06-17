@@ -1,12 +1,41 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import DropZone from "@/components/upload/DropZone";
 import Button from "@/components/ui/Button";
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowRight, Info, AlertCircle } from "lucide-react";
+import { uploadDocuments } from "@/lib/api";
 
 export default function UploadPage() {
+  const router = useRouter();
+  const [files, setFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleRun = async () => {
+    if (!files.length) {
+      setError("Add at least one PDF before running the analysis.");
+      return;
+    }
+    setError(null);
+    setIsUploading(true);
+    try {
+      const res = await uploadDocuments(files);
+      router.push(`/processing?runId=${encodeURIComponent(res.run_id)}`);
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (err as any).detail || err.message
+          : "Upload failed. Please try again.";
+      setError(String(msg));
+      setIsUploading(false);
+    }
+  };
+
   return (
     <DashboardLayout
       title="New Analysis"
@@ -63,7 +92,7 @@ export default function UploadPage() {
         {/* Drop zone */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-card p-6">
           <h2 className="text-sm font-semibold text-slate-800 mb-4">Source Documents</h2>
-          <DropZone />
+          <DropZone files={files} onChange={setFiles} disabled={isUploading} />
         </div>
 
         {/* Safety notice */}
@@ -79,16 +108,28 @@ export default function UploadPage() {
           </div>
         </div>
 
+        {/* Error */}
+        {error && (
+          <div className="flex gap-3 bg-rose-50 border border-rose-200 rounded-xl px-5 py-4">
+            <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-rose-800 break-words">{error}</p>
+          </div>
+        )}
+
         {/* Action */}
         <div className="flex items-center justify-end gap-3 pt-2">
           <Link href="/dashboard">
-            <Button variant="ghost">Cancel</Button>
+            <Button variant="ghost" disabled={isUploading}>Cancel</Button>
           </Link>
-          <Link href="/processing">
-            <Button size="lg" rightIcon={<ArrowRight className="w-4 h-4" />}>
-              Run Clinote AI
-            </Button>
-          </Link>
+          <Button
+            size="lg"
+            onClick={handleRun}
+            loading={isUploading}
+            disabled={isUploading || files.length === 0}
+            rightIcon={!isUploading ? <ArrowRight className="w-4 h-4" /> : undefined}
+          >
+            {isUploading ? "Uploading..." : "Run Clinote AI"}
+          </Button>
         </div>
       </div>
     </DashboardLayout>

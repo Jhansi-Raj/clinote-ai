@@ -4,27 +4,53 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle,
-  AlertTriangle,
   XCircle,
   ChevronDown,
   Terminal,
   Brain,
   Zap,
   Hash,
+  Inbox,
 } from "lucide-react";
-import { traceSteps } from "@/lib/mockData";
 import Badge from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/utils";
+import type { BackendTraceStep } from "@/lib/api";
 
-const resultTypeStyles = {
-  success: { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
-  warning: { dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50 border-amber-200" },
-  error: { dot: "bg-rose-500", text: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
-  info: { dot: "bg-blue-400", text: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
+interface TraceTimelineProps {
+  trace: BackendTraceStep[];
+}
+
+const resultTypeStyles: Record<
+  string,
+  { dot: string; text: string; bg: string }
+> = {
+  success: {
+    dot: "bg-emerald-500",
+    text: "text-emerald-700",
+    bg: "bg-emerald-50 border-emerald-200",
+  },
+  warning: {
+    dot: "bg-amber-500",
+    text: "text-amber-700",
+    bg: "bg-amber-50 border-amber-200",
+  },
+  error: {
+    dot: "bg-rose-500",
+    text: "text-rose-700",
+    bg: "bg-rose-50 border-rose-200",
+  },
+  info: {
+    dot: "bg-blue-400",
+    text: "text-blue-700",
+    bg: "bg-blue-50 border-blue-200",
+  },
 };
 
-const stepStatusStyles = {
+const stepStatusStyles: Record<
+  string,
+  { circle: string; line: string; icon: React.ReactNode | null }
+> = {
   completed: {
     circle: "bg-teal-600 border-teal-600",
     line: "bg-teal-200",
@@ -47,76 +73,94 @@ const stepStatusStyles = {
   },
 };
 
-const phaseColors: Record<string, string> = {
-  Initialize: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  "Parse Documents": "bg-teal-50 text-teal-700 border-teal-200",
-  "Extract Demographics": "bg-slate-100 text-slate-700 border-slate-200",
-  "Extract Dates & Diagnoses": "bg-amber-50 text-amber-700 border-amber-200",
-  "Medication Reconciliation": "bg-purple-50 text-purple-700 border-purple-200",
-  "Drug Interaction Check": "bg-rose-50 text-rose-700 border-rose-200",
-  "Pending Items Check": "bg-blue-50 text-blue-700 border-blue-200",
-  "Finalize Draft": "bg-emerald-50 text-emerald-700 border-emerald-200",
-};
+function phaseColorClass(phase: string): string {
+  const k = phase.toLowerCase();
+  if (k.includes("initialize") || k.includes("plan"))
+    return "bg-indigo-50 text-indigo-700 border-indigo-200";
+  if (k.includes("parse") || k.includes("read"))
+    return "bg-teal-50 text-teal-700 border-teal-200";
+  if (k.includes("demograph"))
+    return "bg-slate-100 text-slate-700 border-slate-200";
+  if (k.includes("date") || k.includes("diagnos"))
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  if (k.includes("medication") || k.includes("reconcil"))
+    return "bg-purple-50 text-purple-700 border-purple-200";
+  if (k.includes("interaction") || k.includes("escalat"))
+    return "bg-rose-50 text-rose-700 border-rose-200";
+  if (k.includes("missing") || k.includes("pending"))
+    return "bg-blue-50 text-blue-700 border-blue-200";
+  if (k.includes("finalize") || k.includes("summary"))
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  return "bg-slate-100 text-slate-600 border-slate-200";
+}
 
-export default function TraceTimeline() {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(["TS-06"]));
+export default function TraceTimeline({ trace }: TraceTimelineProps) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
-  const toggle = (id: string) =>
+  const toggle = (n: number) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
       return next;
     });
 
+  if (!trace.length) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-card flex flex-col items-center justify-center py-20 text-center">
+        <Inbox className="w-10 h-10 text-slate-300 mb-3" />
+        <p className="text-slate-600 font-medium">No trace recorded</p>
+        <p className="text-sm text-slate-400 mt-1">
+          The agent didn&apos;t produce any trace steps for this run.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
-      {traceSteps.map((step, i) => {
-        const isOpen = expanded.has(step.id);
-        const styles = stepStatusStyles[step.status];
-        const resultStyles = resultTypeStyles[step.resultType ?? "info"];
+      {trace.map((step, i) => {
+        const isOpen = expanded.has(step.step_number);
+        const styles = stepStatusStyles[step.status] ?? stepStatusStyles.completed;
+        const resultStyles = resultTypeStyles[step.result_type] ?? resultTypeStyles.info;
 
         return (
           <motion.div
-            key={step.id}
+            key={`${step.step_number}-${i}`}
             initial={{ opacity: 0, x: -12 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.06 }}
+            transition={{ duration: 0.3, delay: Math.min(i * 0.04, 0.5) }}
             className="flex gap-4"
           >
-            {/* Left: timeline */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div
                 className={cn(
                   "w-9 h-9 rounded-full flex items-center justify-center z-10 border",
-                  styles.circle
+                  styles.circle,
                 )}
               >
                 {styles.icon ?? (
-                  <span className="text-xs font-bold text-slate-400">{step.stepNumber}</span>
+                  <span className="text-xs font-bold text-slate-400">
+                    {step.step_number}
+                  </span>
                 )}
               </div>
-              {i < traceSteps.length - 1 && (
+              {i < trace.length - 1 && (
                 <div className={cn("w-px flex-1 my-1 min-h-[16px]", styles.line)} />
               )}
             </div>
 
-            {/* Right: card */}
             <div className="flex-1 pb-4">
-              <div
-                className={cn(
-                  "bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden"
-                )}
-              >
-                {/* Card header */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden">
                 <button
-                  onClick={() => toggle(step.id)}
+                  onClick={() => toggle(step.step_number)}
                   className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50/50 transition-colors text-left"
                 >
                   <div className="flex items-center gap-3 flex-wrap">
                     <span
                       className={cn(
                         "text-[10px] font-bold px-2 py-1 rounded-full border",
-                        phaseColors[step.phase] ?? "bg-slate-100 text-slate-600 border-slate-200"
+                        phaseColorClass(step.phase),
                       )}
                     >
                       {step.phase}
@@ -127,14 +171,14 @@ export default function TraceTimeline() {
                     <div
                       className={cn(
                         "w-2 h-2 rounded-full flex-shrink-0",
-                        resultStyles.dot
+                        resultStyles.dot,
                       )}
                     />
                   </div>
                   <ChevronDown
                     className={cn(
                       "w-4 h-4 text-slate-400 flex-shrink-0 transition-transform",
-                      isOpen && "rotate-180"
+                      isOpen && "rotate-180",
                     )}
                   />
                 </button>
@@ -149,7 +193,6 @@ export default function TraceTimeline() {
                       className="overflow-hidden"
                     >
                       <div className="border-t border-slate-100 divide-y divide-slate-50">
-                        {/* Reasoning */}
                         <div className="px-5 py-4">
                           <div className="flex items-center gap-2 mb-2">
                             <Brain className="w-3.5 h-3.5 text-indigo-500" />
@@ -162,7 +205,6 @@ export default function TraceTimeline() {
                           </p>
                         </div>
 
-                        {/* Action + Inputs */}
                         <div className="px-5 py-4">
                           <div className="flex items-center gap-2 mb-3">
                             <Zap className="w-3.5 h-3.5 text-teal-500" />
@@ -174,23 +216,26 @@ export default function TraceTimeline() {
                               {step.action}
                             </Badge>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            {Object.entries(step.inputs).map(([k, v]) => (
-                              <div
-                                key={k}
-                                className="bg-slate-900 rounded-lg px-3 py-1.5 flex items-center gap-2"
-                              >
-                                <Hash className="w-2.5 h-2.5 text-slate-500" />
-                                <span className="text-[10px] text-slate-400 font-mono">{k}</span>
-                                <span className="text-[10px] text-teal-300 font-mono max-w-[180px] truncate">
-                                  {v}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                          {Object.keys(step.inputs ?? {}).length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {Object.entries(step.inputs).map(([k, v]) => (
+                                <div
+                                  key={k}
+                                  className="bg-slate-900 rounded-lg px-3 py-1.5 flex items-center gap-2"
+                                >
+                                  <Hash className="w-2.5 h-2.5 text-slate-500" />
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    {k}
+                                  </span>
+                                  <span className="text-[10px] text-teal-300 font-mono max-w-[180px] truncate">
+                                    {typeof v === "string" ? v : JSON.stringify(v)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
-                        {/* Result */}
                         <div className="px-5 py-4">
                           <div className="flex items-center gap-2 mb-2">
                             <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
@@ -202,7 +247,7 @@ export default function TraceTimeline() {
                             className={cn(
                               "rounded-lg px-3 py-2.5 border text-sm",
                               resultStyles.bg,
-                              resultStyles.text
+                              resultStyles.text,
                             )}
                           >
                             {step.result}
